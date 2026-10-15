@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Modal,
   StyleSheet,
@@ -10,62 +10,154 @@ import {
   KeyboardAvoidingView,
   Platform,
   Alert,
+  Image
 } from 'react-native';
 import Animated, { FadeIn, SlideInDown } from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
-import { Category, CATEGORIES, CATEGORY_ICONS } from '@/types/expense';
+import DateTimePicker from '@react-native-community/datetimepicker';
+import * as ImagePicker from 'expo-image-picker';
+import { Category, CATEGORIES, CATEGORY_ICONS, Expense } from '@/types/expense';
 import { LiquidGlassColors, Spacing } from '@/constants/theme';
 import { useExpenses } from '@/context/ExpenseContext';
 
 interface AddExpenseModalProps {
   visible: boolean;
   onClose: () => void;
+  expenseToEdit?: Expense | null;
 }
 
-// Modal que sube desde abajo para registrar un gasto.
-// Para poder agregarlo hacen falta el monto y la categoria; la descripcion es opcional.
 export const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
   visible,
   onClose,
+  expenseToEdit,
 }) => {
-  const { addExpense } = useExpenses();
-  // El monto es string porque asi trabaja el TextInput; se pasa a numero al guardar
+  const { addExpense, updateExpense } = useExpenses();
   const [amount, setAmount] = useState('');
   const [category, setCategory] = useState<Category | null>(null);
   const [description, setDescription] = useState('');
+  const [date, setDate] = useState(new Date());
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [receptionUri, setReceiptUri] = useState<string | null>(null);
 
-  // async porque ahora hay que esperar a que el gasto se guarde en el telefono
+  useEffect(() => {
+    if (expenseToEdit) {
+      setAmount(expenseToEdit.amount.toString());
+      setCategory(expenseToEdit.category);
+      setDescription(expenseToEdit.description || '');
+      setDate(new Date(expenseToEdit.date));
+      setReceiptUri(expenseToEdit.receptionUri || null);
+    } else {
+      resetForm();
+    }
+  }, [expenseToEdit, visible]);
+
+  const handleDateChange = (event: any, selectedDate?: Date) => {
+    setShowDatePicker(Platform.OS === 'ios');
+    if (selectedDate) {
+      setDate(selectedDate);
+    }
+  };
+
+  // REGLA 1: Monto solo números y máximo 2 decimales
+  const handleAmountChange = (text: string) => {
+    const regex = /^\d*\.?\d{0,2}$/;
+    if (text === '' || regex.test(text)) {
+      setAmount(text);
+    }
+  };
+
+  // REGLA 3: Descripción sin caracteres especiales, solo letras y números, máx 400 caracteres
+  const handleDescriptionChange = (text: string) => {
+    if (text.length > 400) return;
+    const regex = /^[a-zA-ZáéíóúÁÉÍÓÚñÑ0-9\s]*$/;
+    if (text === '' || regex.test(text)) {
+      setDescription(text);
+    }
+  };
+
+  const pickImage = async (useCamera: boolean) => {
+    const permissionResult = useCamera
+      ? await ImagePicker.requestCameraPermissionsAsync()
+      : await ImagePicker.requestMediaLibraryPermissionsAsync();
+
+    if (!permissionResult.granted) {
+      Alert.alert(
+        'Permiso denegado',
+        'Se necesitan permisos para acceder a la cámara o galería.'
+      );
+      return;
+    }
+
+    const result = useCamera
+      ? await ImagePicker.launchCameraAsync({
+        mediaTypes: ['images'],
+        allowsEditing: true,
+        quality: 0.8,
+      })
+      : await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsEditing: true,
+        quality: 0.8,
+      });
+
+    if (!result.canceled && result.assets && result.assets.length > 0) {
+      setReceiptUri(result.assets[0].uri);
+    }
+  };
+
   const handleSubmit = async () => {
-    if (!amount || !category) return;
+    // REGLA 1: Monto obligatorio y válido
+    if (!amount || parseFloat(amount) <= 0) {
+      Alert.alert('Campo obligatorio', 'Por favor ingresa un monto válido.');
+      return;
+    }
+
+    // REGLA 2: Mensaje obligatorio si no se selecciona categoría
+    if (!category) {
+      Alert.alert('Categoría obligatoria', 'Por favor selecciona una categoría para el gasto.');
+      return;
+    }
 
     try {
-      await addExpense({
-        amount: parseFloat(amount),
-        category,
-        date: new Date(),
-        description: description.trim() || undefined,
-      });
+      if (expenseToEdit) {
+        await updateExpense({
+          ...expenseToEdit,
+          amount: parseFloat(amount),
+          category,
+          date,
+          description: description.trim() || undefined,
+          receptionUri: receptionUri || undefined,
+        });
+      } else {
+        await addExpense({
+          amount: parseFloat(amount),
+          category,
+          date,
+          description: description.trim() || undefined,
+          receptionUri: receptionUri || undefined,
+        });
+      }
     } catch (error) {
-      // Si no se pudo guardar, se avisa y el modal queda abierto con los datos
       console.error('Error al guardar el gasto', error);
       Alert.alert('Error', 'No se pudo guardar el gasto. Intenta de nuevo.');
       return;
     }
 
-    // Reset form
-    setAmount('');
-    setCategory(null);
-    setDescription('');
+    resetForm();
     onClose();
   };
 
-
-  // Igual que al guardar, se limpia el formulario para que no quede texto viejo
-  const handleClose = () => {
+  const resetForm = () => {
     setAmount('');
     setCategory(null);
     setDescription('');
+    setDate(new Date());
+    setReceiptUri(null);
+  };
+
+  const handleClose = () => {
+    resetForm();
     onClose();
   };
 
@@ -81,7 +173,6 @@ export const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
         style={styles.modalOverlay}
         keyboardVerticalOffset={0}
       >
-        {/* Tocar el fondo tambien cierra el modal */}
         <TouchableOpacity
           style={styles.backdrop}
           activeOpacity={1}
@@ -105,16 +196,19 @@ export const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
                 keyboardShouldPersistTaps="handled"
                 contentContainerStyle={styles.scrollContent}
               >
-                <Text style={styles.title}>Agregar Gasto</Text>
+                <Text style={styles.title}>
+                  {expenseToEdit ? 'Editar Gasto' : 'Agregar Gasto'}
+                </Text>
 
+                {/* Monto con validación */}
                 <View style={styles.inputSection}>
-                  <Text style={styles.label}>Monto (USD)</Text>
+                  <Text style={styles.label}>Monto (USD) *</Text>
                   <View style={styles.inputContainer}>
                     <Text style={styles.currencySymbol}>$</Text>
                     <TextInput
                       style={styles.input}
                       value={amount}
-                      onChangeText={setAmount}
+                      onChangeText={handleAmountChange}
                       placeholder="0.00"
                       keyboardType="decimal-pad"
                       placeholderTextColor={LiquidGlassColors.glassTextSecondary}
@@ -122,15 +216,40 @@ export const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
                   </View>
                 </View>
 
+                {/* Campo de Fecha */}
                 <View style={styles.inputSection}>
-                  <Text style={styles.label}>Categoría</Text>
+                  <Text style={styles.label}>Fecha del gasto *</Text>
+                  <TouchableOpacity
+                    style={styles.datePickerButton}
+                    onPress={() => setShowDatePicker(true)}
+                  >
+                    <Text style={styles.datePickerText}>
+                      📅 {date.toLocaleDateString('es-ES', {
+                        day: '2-digit',
+                        month: 'long',
+                        year: 'numeric',
+                      })}
+                    </Text>
+                  </TouchableOpacity>
+                  {showDatePicker && (
+                    <DateTimePicker
+                      value={date}
+                      mode="date"
+                      display="default"
+                      onChange={handleDateChange}
+                    />
+                  )}
+                </View>
+
+                {/* Categoría */}
+                <View style={styles.inputSection}>
+                  <Text style={styles.label}>Categoría *</Text>
                   <ScrollView
                     horizontal
                     showsHorizontalScrollIndicator={false}
                     style={styles.categoriesScroll}
                     contentContainerStyle={styles.categoriesContent}
                   >
-                    {/* La elegida se pinta con el gradiente */}
                     {CATEGORIES.map((cat) => (
                       <TouchableOpacity
                         key={cat}
@@ -168,12 +287,47 @@ export const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
                   </ScrollView>
                 </View>
 
+                {/* Adjuntar Factura / Comprobante */}
                 <View style={styles.inputSection}>
-                  <Text style={styles.label}>Descripción (opcional)</Text>
+                  <Text style={styles.label}>Comprobante / Factura (opcional)</Text>
+                  {receptionUri ? (
+                    <View style={styles.receiptPreviewContainer}>
+                      <Image source={{ uri: receptionUri }} style={styles.receiptImage} />
+                      <TouchableOpacity
+                        style={styles.removeReceiptButton}
+                        onPress={() => setReceiptUri(null)}
+                      >
+                        <Text style={styles.removeReceiptText}>✕ Eliminar foto</Text>
+                      </TouchableOpacity>
+                    </View>
+                  ) : (
+                    <View style={styles.receiptButtonsRow}>
+                      <TouchableOpacity
+                        style={styles.receiptOptionButton}
+                        onPress={() => pickImage(true)}
+                      >
+                        <Text style={styles.receiptOptionText}>📸 Cámara</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={styles.receiptOptionButton}
+                        onPress={() => pickImage(false)}
+                      >
+                        <Text style={styles.receiptOptionText}>🖼️ Galería</Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
+                </View>
+
+                {/* Descripción con validación alfanumérica y contador de 400 caracteres */}
+                <View style={styles.inputSection}>
+                  <View style={styles.labelRow}>
+                    <Text style={styles.label}>Descripción (opcional)</Text>
+                    <Text style={styles.counterText}>{description.length}/400</Text>
+                  </View>
                   <TextInput
                     style={[styles.input, styles.descriptionInput]}
                     value={description}
-                    onChangeText={setDescription}
+                    onChangeText={handleDescriptionChange}
                     placeholder="Ej: Almuerzo, transporte a la universidad..."
                     placeholderTextColor={LiquidGlassColors.glassTextSecondary}
                     multiline
@@ -189,12 +343,8 @@ export const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
                   </TouchableOpacity>
 
                   <TouchableOpacity
-                    style={[
-                      styles.submitButton,
-                      (!amount || !category) && styles.submitButtonDisabled,
-                    ]}
+                    style={styles.submitButton}
                     onPress={handleSubmit}
-                    disabled={!amount || !category}
                   >
                     <LinearGradient
                       colors={[LiquidGlassColors.primary, LiquidGlassColors.secondary]}
@@ -202,7 +352,9 @@ export const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
                       end={{ x: 1, y: 1 }}
                       style={styles.submitGradient}
                     >
-                      <Text style={styles.submitButtonText}>Agregar</Text>
+                      <Text style={styles.submitButtonText}>
+                        {expenseToEdit ? 'Guardar Cambios' : 'Agregar'}
+                      </Text>
                     </LinearGradient>
                   </TouchableOpacity>
                 </View>
@@ -230,10 +382,9 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: Spacing.four,
     borderTopRightRadius: Spacing.four,
     overflow: 'hidden',
-    maxHeight: '80%',
+    maxHeight: '85%',
   },
   modalBackground: {
-    // Bajito a proposito: si es casi opaco no se ve el blur del fondo
     backgroundColor: 'rgba(255, 255, 255, 0.45)',
     borderTopLeftRadius: Spacing.four,
     borderTopRightRadius: Spacing.four,
@@ -266,11 +417,21 @@ const styles = StyleSheet.create({
   inputSection: {
     marginBottom: Spacing.four,
   },
+  labelRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: Spacing.two,
+  },
   label: {
     fontSize: 14,
     fontWeight: '600',
     color: LiquidGlassColors.glassText,
     marginBottom: Spacing.two,
+  },
+  counterText: {
+    fontSize: 12,
+    color: LiquidGlassColors.glassTextSecondary,
   },
   inputContainer: {
     flexDirection: 'row',
@@ -366,16 +527,69 @@ const styles = StyleSheet.create({
     borderRadius: Spacing.two,
     overflow: 'hidden',
   },
-  submitButtonDisabled: {
-    opacity: 0.5,
-  },
   submitGradient: {
     paddingVertical: Spacing.three,
     alignItems: 'center',
+    justifyContent: 'center',
   },
   submitButtonText: {
     fontSize: 16,
     fontWeight: 'bold',
     color: LiquidGlassColors.glassTextLight,
+    textAlign: 'center',
+  },
+  datePickerButton: {
+    backgroundColor: 'rgba(255, 255, 255, 0.5)',
+    borderRadius: Spacing.two,
+    borderWidth: 1,
+    borderColor: LiquidGlassColors.glassBorder,
+    padding: Spacing.three,
+  },
+  datePickerText: {
+    fontSize: 16,
+    color: LiquidGlassColors.glassText,
+    fontWeight: '500',
+  },
+  receiptButtonsRow: {
+    flexDirection: 'row',
+    gap: Spacing.two,
+  },
+  receiptOptionButton: {
+    flex: 1,
+    backgroundColor: 'rgba(255, 255, 255, 0.6)',
+    borderRadius: Spacing.two,
+    borderWidth: 1,
+    borderColor: LiquidGlassColors.glassBorder,
+    paddingVertical: Spacing.three,
+    alignItems: 'center',
+  },
+  receiptOptionText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: LiquidGlassColors.glassText,
+  },
+  receiptPreviewContainer: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.4)',
+    borderRadius: Spacing.two,
+    padding: Spacing.two,
+    borderWidth: 1,
+    borderColor: LiquidGlassColors.glassBorder,
+  },
+  receiptImage: {
+    width: '100%',
+    height: 150,
+    borderRadius: Spacing.one,
+    resizeMode: 'cover',
+    marginBottom: Spacing.two,
+  },
+  removeReceiptButton: {
+    paddingVertical: Spacing.one,
+    paddingHorizontal: Spacing.two,
+  },
+  removeReceiptText: {
+    color: LiquidGlassColors.secondary,
+    fontWeight: '600',
+    fontSize: 13,
   },
 });

@@ -8,12 +8,31 @@ import { ExpenseItem } from '@/components/ExpenseItem';
 import { AddExpenseModal } from '@/components/AddExpenseModal';
 import { useExpenses } from '@/context/ExpenseContext';
 import { LiquidGlassColors, Spacing } from '@/constants/theme';
+import { Expense } from '@/types/expense';
 
 // Pantalla principal: total del mes, lista de gastos y el boton + para agregar
 export default function HomeScreen() {
-  const { getCurrentMonthExpenses, isLoading } = useExpenses();
+  const { getCurrentMonthExpenses, isLoading, deleteExpense } = useExpenses();
   const [modalVisible, setModalVisible] = useState(false);
-  const expenses = getCurrentMonthExpenses();
+  const [editingExpense, setEditingExpense] = useState<Expense | null>(null); // Gasto seleccionado para editar
+  const [sortByHighest, setSortByHighest] = useState(false); // Filtro para ordenar por gastos más altos
+
+  let expenses = getCurrentMonthExpenses();
+
+  // Lógica de ordenamiento: si está activo el filtro, ordena del más alto al más bajo
+  if (sortByHighest) {
+    expenses = [...expenses].sort((a, b) => b.amount - a.amount);
+  }
+
+  const handleOpenAdd = () => {
+    setEditingExpense(null);
+    setModalVisible(true);
+  };
+
+  const handleOpenEdit = (expense: Expense) => {
+    setEditingExpense(expense);
+    setModalVisible(true);
+  };
 
   return (
     <View style={styles.container}>
@@ -32,6 +51,19 @@ export default function HomeScreen() {
             <Text style={styles.appTitle}>Gastos Poliestudiante</Text>
 
             <MonthlyHeader />
+
+            {/* Botón de filtro para ordenar por gastos más altos */}
+            {!isLoading && expenses.length > 0 && (
+              <TouchableOpacity
+                style={styles.filterButton}
+                onPress={() => setSortByHighest(!sortByHighest)}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.filterButtonText}>
+                  {sortByHighest ? '📊 Ordenado: Más altos primero' : '📅 Ordenado: Recientes'}
+                </Text>
+              </TouchableOpacity>
+            )}
 
             {/* Mientras se leen los datos guardados se muestra un indicador;
                 sin esto se veria un instante el mensaje de "no hay gastos" */}
@@ -53,7 +85,12 @@ export default function HomeScreen() {
                 data={expenses}
                 keyExtractor={(item) => item.id}
                 renderItem={({ item, index }) => (
-                  <ExpenseItem expense={item} index={index} />
+                  <ExpenseItem
+                    expense={item}
+                    index={index}
+                    onEdit={handleOpenEdit}
+                    onDelete={deleteExpense}
+                  />
                 )}
                 contentContainerStyle={styles.listContent}
                 showsVerticalScrollIndicator={false}
@@ -64,7 +101,7 @@ export default function HomeScreen() {
           {/* Boton + de la esquina */}
           <TouchableOpacity
             style={styles.fab}
-            onPress={() => setModalVisible(true)}
+            onPress={handleOpenAdd}
             activeOpacity={0.8}
           >
             <LinearGradient
@@ -79,7 +116,11 @@ export default function HomeScreen() {
 
           <AddExpenseModal
             visible={modalVisible}
-            onClose={() => setModalVisible(false)}
+            onClose={() => {
+              setModalVisible(false);
+              setEditingExpense(null);
+            }}
+            expenseToEdit={editingExpense}
           />
         </SafeAreaView>
       </LinearGradient>
@@ -131,8 +172,23 @@ const styles = StyleSheet.create({
     fontSize: 28,
     fontWeight: 'bold',
     color: LiquidGlassColors.glassText,
-    marginBottom: Spacing.three,
+    marginBottom: Spacing.two,
     textAlign: 'center',
+  },
+  filterButton: {
+    backgroundColor: 'rgba(255, 255, 255, 0.6)',
+    borderRadius: Spacing.two,
+    borderWidth: 1,
+    borderColor: LiquidGlassColors.glassBorder,
+    paddingVertical: Spacing.two,
+    paddingHorizontal: Spacing.three,
+    marginBottom: Spacing.three,
+    alignSelf: 'flex-start',
+  },
+  filterButtonText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: LiquidGlassColors.glassText,
   },
   listContent: {
     paddingBottom: 100,

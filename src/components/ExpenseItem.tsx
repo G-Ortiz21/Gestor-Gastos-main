@@ -1,5 +1,5 @@
 import React from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, TouchableOpacity, View, Alert } from 'react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Expense, CATEGORY_ICONS } from '@/types/expense';
@@ -8,11 +8,13 @@ import { LiquidGlassColors, Spacing } from '@/constants/theme';
 
 interface ExpenseItemProps {
   expense: Expense;
-  index: number; // sirve para que cada fila entre un poquito despues de la anterior
+  index: number;
+  onEdit: (expense: Expense) => void;     // Función para editar
+  onDelete: (id: string) => void;        // Función para eliminar
 }
 
-// Una fila de la lista de gastos
-export const ExpenseItem: React.FC<ExpenseItemProps> = ({ expense, index }) => {
+// Una fila de la lista de gastos con soporte para editar y eliminar
+export const ExpenseItem: React.FC<ExpenseItemProps> = ({ expense, index, onEdit, onDelete }) => {
   // Queda algo como "15 oct"
   const formattedDate = new Date(expense.date).toLocaleDateString('es-ES', {
     day: '2-digit',
@@ -26,13 +28,33 @@ export const ExpenseItem: React.FC<ExpenseItemProps> = ({ expense, index }) => {
     minimumFractionDigits: 2,
   }).format(expense.amount);
 
+  const confirmDelete = () => {
+    Alert.alert(
+      'Eliminar Gasto',
+      '¿Estás seguro de que deseas eliminar este gasto?',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        { 
+          text: 'Eliminar', 
+          style: 'destructive', 
+          onPress: () => onDelete(expense.id) 
+        },
+      ]
+    );
+  };
+
   return (
     <Animated.View
       entering={FadeInDown.delay(index * 100).springify()}
       style={styles.container}
     >
       <GlassCard>
-        <View style={styles.content}>
+        {/* Al presionar toda la tarjeta se abre el modal para editar */}
+        <TouchableOpacity 
+          style={styles.content} 
+          activeOpacity={0.7} 
+          onPress={() => onEdit(expense)}
+        >
           <View style={styles.leftSection}>
             <View style={styles.iconContainer}>
               <LinearGradient
@@ -51,13 +73,28 @@ export const ExpenseItem: React.FC<ExpenseItemProps> = ({ expense, index }) => {
                   {expense.description}
                 </Text>
               )}
+              {expense.receptionUri && (
+                <Text style={styles.receiptBadge}>📎 Con comprobante</Text>
+              )}
             </View>
           </View>
+          
           <View style={styles.rightSection}>
             <Text style={styles.amount}>{formattedAmount}</Text>
             <Text style={styles.date}>{formattedDate}</Text>
+            
+            {/* Botón rápido para eliminar */}
+            <TouchableOpacity 
+              style={styles.deleteButton} 
+              onPress={(e) => {
+                e.stopPropagation(); // Evita que se dispare el evento de editar de la tarjeta
+                confirmDelete();
+              }}
+            >
+              <Text style={styles.deleteIcon}>🗑️</Text>
+            </TouchableOpacity>
           </View>
-        </View>
+        </TouchableOpacity>
       </GlassCard>
     </Animated.View>
   );
@@ -103,6 +140,12 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: LiquidGlassColors.glassTextSecondary,
   },
+  receiptBadge: {
+    fontSize: 11,
+    color: LiquidGlassColors.primary,
+    marginTop: 2,
+    fontWeight: '500',
+  },
   rightSection: {
     alignItems: 'flex-end',
   },
@@ -115,5 +158,12 @@ const styles = StyleSheet.create({
   date: {
     fontSize: 12,
     color: LiquidGlassColors.glassTextSecondary,
+    marginBottom: 4,
+  },
+  deleteButton: {
+    padding: 4,
+  },
+  deleteIcon: {
+    fontSize: 14,
   },
 });

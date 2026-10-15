@@ -17,8 +17,14 @@ export async function initDatabase(db: SQLiteDatabase): Promise<void> {
             amount      REAL NOT NULL,              -- REAL = numero con decimales
             category    TEXT NOT NULL,              
             date        TEXT NOT NULL,              -- fecha en formato ISO 8601
-            description TEXT                        -- puede ser NULL porque es opcional
+            description TEXT,                        -- puede ser NULL porque es opcional
+            receptionUri TEXT
         );
     `);
+    try {
+        await db.execAsync(`ALTER TABLE expenses ADD COLUMN receptionUri TEXT;`);
+    } catch (error) {
+        // Si la columna ya existe, SQLite lanzará un error que ignoramos sin problema.
+    }
 }
 
